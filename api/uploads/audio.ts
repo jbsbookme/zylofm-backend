@@ -5,6 +5,7 @@ import { rateLimit } from '../_rateLimit';
 import { env } from '../_env';
 import { jsonError, jsonResponse } from '../_http';
 import { withRequestLogging } from '../_observability';
+import { recordEvent, recordUploadStarted } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
@@ -14,7 +15,10 @@ type Body = {
   size?: number;
 };
 
-function badRequest(code: string, message: string) {
+async function badRequest(code: string, message: string, reason?: string) {
+  if (reason) {
+    await recordEvent('upload_failed', { reason });
+  }
   return jsonError(400, code, message);
 }
 
@@ -54,12 +58,15 @@ export default async function handler(req: Request) {
   const size = body.size ?? 0;
 
   if (!contentType || !ALLOWED_AUDIO_MIME.includes(contentType)) {
-    return badRequest('invalid_content_type', 'Invalid contentType');
+    return await badRequest('invalid_content_type', 'Invalid contentType', 'invalid_content_type');
   }
 
   if (!size || size > MAX_AUDIO_BYTES) {
-    return badRequest('invalid_size', 'Invalid size');
+    return await badRequest('invalid_size', 'Invalid size', 'invalid_size');
   }
+
+  await recordEvent('upload_started');
+  await recordUploadStarted();
 
   const { cloudName, apiKey } = getCloudinaryConfig();
 

@@ -7,6 +7,7 @@ import { env } from '../_env';
 import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
+import { recordEvent, recordUploadCompleted, recordUploadFailed } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
@@ -21,7 +22,11 @@ type Body = {
   version?: number;
 };
 
-function badRequest(code: string, message: string) {
+async function badRequest(code: string, message: string, reason?: string) {
+  if (reason) {
+    await recordUploadFailed(reason);
+    await recordEvent('upload_failed', { reason });
+  }
   return jsonError(400, code, message);
 }
 
@@ -55,27 +60,27 @@ export default async function handler(req: Request) {
   try {
     body = (await req.json()) as Body;
   } catch {
-    return badRequest('invalid_json', 'Invalid JSON');
+    return await badRequest('invalid_json', 'Invalid JSON', 'invalid_json');
   }
 
   if (!body?.public_id || !body?.secure_url) {
-    return badRequest('missing_fields', 'Missing public_id or secure_url');
+    return await badRequest('missing_fields', 'Missing public_id or secure_url', 'missing_fields');
   }
 
   if (!body?.signature || !body?.version) {
-    return badRequest('missing_signature', 'Missing signature or version');
+    return await badRequest('missing_signature', 'Missing signature or version', 'missing_signature');
   }
 
   if (body.resource_type && body.resource_type !== 'video') {
-    return badRequest('invalid_resource_type', 'Invalid resource_type');
+    return await badRequest('invalid_resource_type', 'Invalid resource_type', 'invalid_resource_type');
   }
 
   if (body.format && !ALLOWED_AUDIO_FORMATS.includes(body.format)) {
-    return badRequest('invalid_format', 'Invalid format');
+    return await badRequest('invalid_format', 'Invalid format', 'invalid_format');
   }
 
   if (body.bytes && body.bytes > MAX_AUDIO_BYTES) {
-    return badRequest('invalid_size', 'Invalid size');
+    return await badRequest('invalid_size', 'Invalid size', 'invalid_size');
   }
 
   const signatureOk = await verifyCloudinarySignature(
@@ -83,7 +88,7 @@ export default async function handler(req: Request) {
     body.signature,
   );
   if (!signatureOk) {
-    return badRequest('invalid_signature', 'Invalid signature');
+    return await badRequest('invalid_signature', 'Invalid signature', 'invalid_signature');
   }
 
   const data = {
@@ -104,6 +109,9 @@ export default async function handler(req: Request) {
     name: 'upload.audio.complete',
     meta: { userId: payload.sub, publicId: body.public_id, bytes: body.bytes },
   });
+
+  await recordEvent('upload_completed', { publicId: body.public_id });
+  await recordUploadCompleted();
 
   return jsonResponse(data, 200);
   });

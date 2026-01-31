@@ -4,6 +4,7 @@ import { rateLimit } from '../_rateLimit';
 import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
+import { recordEvent, recordMixCreated } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
@@ -75,6 +76,8 @@ export default async function handler(req: Request) {
       await addMixToIndexes(mix);
 
       logEvent({ name: 'mix.create', meta: { mixId: mix.id, userId: mix.ownerId } });
+      await recordEvent('mix_created', { mixId: mix.id, userId: mix.ownerId });
+      await recordMixCreated();
 
       return jsonResponse(mix, 201);
     } catch (err) {

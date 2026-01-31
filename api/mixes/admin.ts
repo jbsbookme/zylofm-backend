@@ -4,6 +4,7 @@ import { rateLimit } from '../_rateLimit';
 import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
+import { recordEvent, recordMixPublished } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
@@ -57,6 +58,8 @@ export default async function handler(req: Request) {
     return jsonError(404, 'mix_not_found', 'Mix not found');
   }
 
+  const previousStatus = mix.status;
+
   mix.status = body.status;
   mix.updatedAt = new Date().toISOString();
 
@@ -66,6 +69,16 @@ export default async function handler(req: Request) {
     name: 'mix.moderate',
     meta: { mixId: mix.id, status: mix.status },
   });
+
+  if (mix.status === 'published' && previousStatus !== 'published') {
+    const createdAt = Date.parse(mix.createdAt);
+    const publishedAt = Date.now();
+    const seconds = Number.isFinite(createdAt)
+      ? Math.max(0, Math.floor((publishedAt - createdAt) / 1000))
+      : undefined;
+    await recordEvent('mix_published', { mixId: mix.id });
+    await recordMixPublished(seconds);
+  }
 
   return jsonResponse(mix, 200);
   });

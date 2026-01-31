@@ -7,6 +7,7 @@ import { rateLimit } from '../_rateLimit';
 import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
+import { recordActiveDj, recordEvent } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
@@ -65,6 +66,7 @@ export default async function handler(req: Request) {
     user = await authenticateUser(body);
   } catch {
     logEvent({ name: 'auth.login.failed', level: 'warn', meta: { email: body.email } });
+    await recordEvent('login_error', { email: body.email });
     return jsonError(401, 'invalid_credentials', 'Invalid credentials');
   }
 
@@ -108,6 +110,10 @@ export default async function handler(req: Request) {
   );
 
   logEvent({ name: 'auth.login.success', meta: { userId: user.id, role } });
+  await recordEvent('login_success', { userId: user.id, role });
+  if (role === 'dj' || role === 'admin') {
+    await recordActiveDj(user.id);
+  }
 
   return jsonResponse(
     {
