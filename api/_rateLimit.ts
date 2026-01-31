@@ -1,4 +1,6 @@
 import { kvGet, kvSet } from './_kv';
+import { jsonError } from './_http';
+import { incrMetric } from './_metrics';
 
 export type RateLimitOptions = {
   keyPrefix: string;
@@ -44,14 +46,12 @@ export async function rateLimit(req: Request, opts: RateLimitOptions) {
 
   if (bucket.count >= opts.limit) {
     const retryAfter = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
-    return new Response('Too Many Requests', {
-      status: 429,
-      headers: {
-        'Retry-After': retryAfter.toString(),
-        'X-RateLimit-Limit': opts.limit.toString(),
-        'X-RateLimit-Remaining': '0',
-        'X-RateLimit-Reset': Math.ceil(bucket.resetAt / 1000).toString(),
-      },
+    await incrMetric(`metrics:ratelimit:${opts.keyPrefix}`);
+    return jsonError(429, 'rate_limited', 'Too Many Requests', {
+      'Retry-After': retryAfter.toString(),
+      'X-RateLimit-Limit': opts.limit.toString(),
+      'X-RateLimit-Remaining': '0',
+      'X-RateLimit-Reset': Math.ceil(bucket.resetAt / 1000).toString(),
     });
   }
 

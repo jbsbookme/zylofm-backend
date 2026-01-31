@@ -1,12 +1,15 @@
 import { kvDel } from '../_kv';
 import { clearRefreshCookie, getCookie, verifyJwt } from '../_jwt';
 import { rateLimit } from '../_rateLimit';
+import { jsonError, jsonResponse } from '../_http';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'auth.logout', async () => {
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
   }
 
   const rl = await rateLimit(req, { keyPrefix: 'auth-logout', limit: 30, windowSeconds: 60 });
@@ -14,10 +17,11 @@ export default async function handler(req: Request) {
 
   const token = getCookie(req, 'refresh_token');
   if (!token) {
-    return new Response(null, {
-      status: 204,
-      headers: { 'Set-Cookie': clearRefreshCookie() },
-    });
+    return jsonResponse(
+      { ok: true },
+      200,
+      { 'Set-Cookie': clearRefreshCookie() },
+    );
   }
 
   try {
@@ -28,8 +32,10 @@ export default async function handler(req: Request) {
     // ignore invalid token
   }
 
-  return new Response(null, {
-    status: 204,
-    headers: { 'Set-Cookie': clearRefreshCookie() },
+  return jsonResponse(
+    { ok: true },
+    200,
+    { 'Set-Cookie': clearRefreshCookie() },
+  );
   });
 }

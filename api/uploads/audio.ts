@@ -2,6 +2,9 @@ import { requireRole } from '../_jwtAuth';
 import { getCloudinaryConfig, signCloudinaryParams } from '../_cloudinary';
 import { ALLOWED_AUDIO_FORMATS, ALLOWED_AUDIO_MIME, MAX_AUDIO_BYTES } from './_audioConfig';
 import { rateLimit } from '../_rateLimit';
+import { env } from '../_env';
+import { jsonError, jsonResponse } from '../_http';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
@@ -11,13 +14,18 @@ type Body = {
   size?: number;
 };
 
-function badRequest(message: string) {
-  return new Response(message, { status: 400 });
+function badRequest(code: string, message: string) {
+  return jsonError(400, code, message);
 }
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'uploads.audio', async () => {
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
+  }
+
+  if (env.FEATURE_UPLOADS === 'false') {
+    return jsonError(503, 'uploads_disabled', 'Uploads are disabled');
   }
 
   try {
@@ -32,25 +40,25 @@ export default async function handler(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;
-    return new Response(message, { status });
+    return jsonError(status, 'unauthorized', message);
   }
 
   let body: Body;
   try {
     body = (await req.json()) as Body;
   } catch {
-    return badRequest('Invalid JSON');
+    return badRequest('invalid_json', 'Invalid JSON');
   }
 
   const contentType = body.contentType?.toLowerCase();
   const size = body.size ?? 0;
 
   if (!contentType || !ALLOWED_AUDIO_MIME.includes(contentType)) {
-    return badRequest('Invalid contentType');
+    return badRequest('invalid_content_type', 'Invalid contentType');
   }
 
   if (!size || size > MAX_AUDIO_BYTES) {
-    return badRequest('Invalid size');
+    return badRequest('invalid_size', 'Invalid size');
   }
 
   const { cloudName, apiKey } = getCloudinaryConfig();
@@ -69,8 +77,8 @@ export default async function handler(req: Request) {
 
   const signature = await signCloudinaryParams(signatureParams);
 
-  return new Response(
-    JSON.stringify({
+  return jsonResponse(
+    {
       uploadUrl: `https://api.cloudinary.com/v1_1/${cloudName}/video/upload`,
       fields: {
         api_key: apiKey,
@@ -84,10 +92,8 @@ export default async function handler(req: Request) {
       maxBytes: MAX_AUDIO_BYTES,
       contentTypes: ALLOWED_AUDIO_MIME,
       duration: null,
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
     },
+    200,
   );
+  });
 }

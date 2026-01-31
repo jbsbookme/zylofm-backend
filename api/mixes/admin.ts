@@ -1,6 +1,9 @@
 import { requireRole } from '../_jwtAuth';
 import { getMix, saveMix, MixStatus } from './_store';
 import { rateLimit } from '../_rateLimit';
+import { jsonError, jsonResponse } from '../_http';
+import { logEvent } from '../_log';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
@@ -9,13 +12,14 @@ type Body = {
   status: MixStatus;
 };
 
-function badRequest(message: string) {
-  return new Response(message, { status: 400 });
+function badRequest(code: string, message: string) {
+  return jsonError(400, code, message);
 }
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'mixes.admin', async () => {
   if (req.method !== 'PATCH') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
   }
 
   try {
@@ -30,27 +34,27 @@ export default async function handler(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;
-    return new Response(message, { status });
+    return jsonError(status, 'unauthorized', message);
   }
 
   let body: Body;
   try {
     body = (await req.json()) as Body;
   } catch {
-    return badRequest('Invalid JSON');
+    return badRequest('invalid_json', 'Invalid JSON');
   }
 
   if (!body?.mixId || !body?.status) {
-    return badRequest('Missing mixId or status');
+    return badRequest('missing_fields', 'Missing mixId or status');
   }
 
   if (!['published', 'rejected', 'pending'].includes(body.status)) {
-    return badRequest('Invalid status');
+    return badRequest('invalid_status', 'Invalid status');
   }
 
   const mix = await getMix(body.mixId);
   if (!mix) {
-    return new Response('Mix not found', { status: 404 });
+    return jsonError(404, 'mix_not_found', 'Mix not found');
   }
 
   mix.status = body.status;
@@ -58,8 +62,11 @@ export default async function handler(req: Request) {
 
   await saveMix(mix);
 
-  return new Response(JSON.stringify(mix), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
+  logEvent({
+    name: 'mix.moderate',
+    meta: { mixId: mix.id, status: mix.status },
+  });
+
+  return jsonResponse(mix, 200);
   });
 }

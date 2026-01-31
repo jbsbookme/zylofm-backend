@@ -4,6 +4,9 @@ import { env } from '../_env';
 import { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS } from './_config';
 import { resolveUserRole, Role } from '../_roles';
 import { rateLimit } from '../_rateLimit';
+import { jsonError, jsonResponse } from '../_http';
+import { logEvent } from '../_log';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
@@ -38,8 +41,9 @@ async function authenticateUser(body: LoginBody): Promise<AuthUser> {
 }
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'auth.login', async () => {
   if (req.method !== 'POST') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
   }
 
   const rl = await rateLimit(req, { keyPrefix: 'auth-login', limit: 10, windowSeconds: 60 });
@@ -49,18 +53,19 @@ export default async function handler(req: Request) {
   try {
     body = (await req.json()) as LoginBody;
   } catch {
-    return new Response('Invalid JSON', { status: 400 });
+    return jsonError(400, 'invalid_json', 'Invalid JSON');
   }
 
   if (!body?.email || !body?.password) {
-    return new Response('Missing credentials', { status: 400 });
+    return jsonError(400, 'missing_credentials', 'Missing credentials');
   }
 
   let user: AuthUser;
   try {
     user = await authenticateUser(body);
   } catch {
-    return new Response('Invalid credentials', { status: 401 });
+    logEvent({ name: 'auth.login.failed', level: 'warn', meta: { email: body.email } });
+    return jsonError(401, 'invalid_credentials', 'Invalid credentials');
   }
 
   const sessionId = crypto.randomUUID();
@@ -102,18 +107,18 @@ export default async function handler(req: Request) {
     REFRESH_TOKEN_TTL_SECONDS,
   );
 
-  return new Response(
-    JSON.stringify({
+  logEvent({ name: 'auth.login.success', meta: { userId: user.id, role } });
+
+  return jsonResponse(
+    {
       access_token: accessToken,
       refresh_token: refreshToken,
       user: { ...user, role },
-    }),
+    },
+    200,
     {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        'Set-Cookie': setRefreshCookie(refreshToken, REFRESH_TOKEN_TTL_SECONDS),
-      },
+      'Set-Cookie': setRefreshCookie(refreshToken, REFRESH_TOKEN_TTL_SECONDS),
     },
   );
+  });
 }

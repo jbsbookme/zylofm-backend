@@ -1,12 +1,15 @@
 import { requireAccessToken } from '../_jwtAuth';
 import { listUserMixes } from './_store';
 import { rateLimit } from '../_rateLimit';
+import { jsonError, jsonResponse } from '../_http';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'mixes.mine', async () => {
   if (req.method !== 'GET') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
   }
 
   try {
@@ -19,13 +22,11 @@ export default async function handler(req: Request) {
     });
     if (rl) return rl;
     const mixes = await listUserMixes(payload.sub);
-    return new Response(JSON.stringify(mixes), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResponse(mixes, 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;
-    return new Response(message, { status });
+    return jsonError(status, 'unauthorized', message);
   }
+  });
 }

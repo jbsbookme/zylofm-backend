@@ -2,6 +2,9 @@ import { requireAccessToken } from '../_jwtAuth';
 import { getMix, saveMix } from './_store';
 import { kvGet } from '../_kv';
 import { rateLimit } from '../_rateLimit';
+import { jsonError, jsonResponse } from '../_http';
+import { logEvent } from '../_log';
+import { withRequestLogging } from '../_observability';
 
 export const config = { runtime: 'edge' };
 
@@ -10,13 +13,14 @@ type Body = {
   audioPublicId: string;
 };
 
-function badRequest(message: string) {
-  return new Response(message, { status: 400 });
+function badRequest(code: string, message: string) {
+  return jsonError(400, code, message);
 }
 
 export default async function handler(req: Request) {
+  return withRequestLogging(req, 'mixes.audio', async () => {
   if (req.method !== 'PATCH') {
-    return new Response('Method Not Allowed', { status: 405 });
+    return jsonError(405, 'method_not_allowed', 'Method Not Allowed');
   }
 
   let payload;
@@ -32,38 +36,42 @@ export default async function handler(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;
-    return new Response(message, { status });
+    return jsonError(status, 'unauthorized', message);
   }
 
   let body: Body;
   try {
     body = (await req.json()) as Body;
   } catch {
-    return badRequest('Invalid JSON');
+    return badRequest('invalid_json', 'Invalid JSON');
   }
 
   if (!body?.mixId || !body?.audioPublicId) {
-    return badRequest('Missing mixId or audioPublicId');
+    return badRequest('missing_fields', 'Missing mixId or audioPublicId');
   }
 
   const mix = await getMix(body.mixId);
   if (!mix) {
-    return new Response('Mix not found', { status: 404 });
+    return jsonError(404, 'mix_not_found', 'Mix not found');
   }
 
   const isAdmin = payload.role === 'admin';
   if (!isAdmin && mix.ownerId !== payload.sub) {
-    return new Response('Forbidden', { status: 403 });
+    return jsonError(403, 'forbidden', 'Forbidden');
   }
 
   const uploadRaw = await kvGet(`upload:audio:${body.audioPublicId}`);
   if (!uploadRaw) {
-    return new Response('Audio upload not found', { status: 404 });
+    return jsonError(404, 'upload_not_found', 'Audio upload not found');
   }
 
   const upload = typeof uploadRaw === 'string' ? JSON.parse(uploadRaw) : uploadRaw;
   if (!upload?.secure_url) {
-    return new Response('Invalid upload data', { status: 400 });
+    return badRequest('invalid_upload', 'Invalid upload data');
+  }
+
+  if (!isAdmin && upload.userId && upload.userId !== payload.sub) {
+    return jsonError(403, 'forbidden', 'Forbidden');
   }
 
   mix.audioPublicId = body.audioPublicId;
@@ -73,8 +81,11 @@ export default async function handler(req: Request) {
 
   await saveMix(mix);
 
-  return new Response(JSON.stringify(mix), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
+  logEvent({
+    name: 'mix.audio.linked',
+    meta: { mixId: mix.id, userId: payload.sub, publicId: body.audioPublicId },
+  });
+
+  return jsonResponse(mix, 200);
   });
 }
