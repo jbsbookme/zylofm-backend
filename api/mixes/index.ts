@@ -1,5 +1,6 @@
 import { requireAccessToken, requireRole } from '../_jwtAuth';
 import { addMixToIndexes, listPublishedMixes, saveMix, Mix } from './_store';
+import { rateLimit } from '../_rateLimit';
 
 export const config = { runtime: 'edge' };
 
@@ -19,6 +20,13 @@ export default async function handler(req: Request) {
   if (req.method === 'POST') {
     try {
       const payload = await requireRole(req, ['dj']);
+      const rl = await rateLimit(req, {
+        keyPrefix: 'mixes-create',
+        limit: 10,
+        windowSeconds: 60,
+        userId: payload.sub,
+      });
+      if (rl) return rl;
 
       let body: CreateBody;
       try {
@@ -38,6 +46,8 @@ export default async function handler(req: Request) {
         title: body.title.trim(),
         description: body.description?.trim() || undefined,
         audioUrl: body.audioUrl.trim(),
+        audioPublicId: undefined,
+        duration: null,
         coverUrl: body.coverUrl?.trim() || undefined,
         tags: body.tags || [],
         status: 'pending',
@@ -61,7 +71,14 @@ export default async function handler(req: Request) {
 
   if (req.method === 'GET') {
     try {
-      await requireAccessToken(req);
+      const payload = await requireAccessToken(req);
+      const rl = await rateLimit(req, {
+        keyPrefix: 'mixes-list',
+        limit: 60,
+        windowSeconds: 60,
+        userId: payload.sub,
+      });
+      if (rl) return rl;
       const mixes = await listPublishedMixes();
       return new Response(JSON.stringify(mixes), {
         status: 200,

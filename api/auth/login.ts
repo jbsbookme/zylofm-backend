@@ -2,6 +2,8 @@ import { kvSet } from '../_kv';
 import { signJwt, setRefreshCookie } from '../_jwt';
 import { env } from '../_env';
 import { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS } from './_config';
+import { resolveUserRole, Role } from '../_roles';
+import { rateLimit } from '../_rateLimit';
 
 export const config = { runtime: 'edge' };
 
@@ -40,6 +42,9 @@ export default async function handler(req: Request) {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
+  const rl = await rateLimit(req, { keyPrefix: 'auth-login', limit: 10, windowSeconds: 60 });
+  if (rl) return rl;
+
   let body: LoginBody;
   try {
     body = (await req.json()) as LoginBody;
@@ -61,9 +66,11 @@ export default async function handler(req: Request) {
   const sessionId = crypto.randomUUID();
   const refreshJti = crypto.randomUUID();
 
+  const role = await resolveUserRole(user.id, (user.role as Role) || 'user');
+
   await kvSet(
     `session:${sessionId}`,
-    JSON.stringify({ sub: user.id, email: user.email, role: user.role }),
+    JSON.stringify({ sub: user.id, email: user.email, role }),
     REFRESH_TOKEN_TTL_SECONDS,
   );
 
@@ -77,7 +84,7 @@ export default async function handler(req: Request) {
     {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      role,
       type: 'access',
       jti: crypto.randomUUID(),
       sid: sessionId,
@@ -99,7 +106,7 @@ export default async function handler(req: Request) {
     JSON.stringify({
       access_token: accessToken,
       refresh_token: refreshToken,
-      user,
+      user: { ...user, role },
     }),
     {
       status: 200,

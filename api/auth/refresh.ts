@@ -1,6 +1,8 @@
 import { kvDel, kvGet, kvGetDel, kvSet } from '../_kv';
 import { getCookie, signJwt, verifyJwt, setRefreshCookie, clearRefreshCookie } from '../_jwt';
 import { ACCESS_TOKEN_TTL_SECONDS, REFRESH_TOKEN_TTL_SECONDS } from './_config';
+import { resolveUserRole, Role } from '../_roles';
+import { rateLimit } from '../_rateLimit';
 
 export const config = { runtime: 'edge' };
 
@@ -10,6 +12,9 @@ export default async function handler(req: Request) {
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
+
+  const rl = await rateLimit(req, { keyPrefix: 'auth-refresh', limit: 30, windowSeconds: 60 });
+  if (rl) return rl;
 
   let body: RefreshBody = {};
   try {
@@ -54,6 +59,7 @@ export default async function handler(req: Request) {
   const userId = session.sub as string;
   const email = session.email as string | undefined;
   const role = session.role as string | undefined;
+  const effectiveRole = await resolveUserRole(userId, (role as Role) || 'user');
 
   const newSessionId = payload.sid;
   const newRefreshJti = crypto.randomUUID();
@@ -68,7 +74,7 @@ export default async function handler(req: Request) {
     {
       sub: userId,
       email,
-      role,
+      role: effectiveRole,
       type: 'access',
       jti: crypto.randomUUID(),
       sid: newSessionId,

@@ -8,6 +8,8 @@ export type Mix = {
   title: string;
   description?: string;
   audioUrl: string;
+  audioPublicId?: string;
+  duration?: number | null;
   coverUrl?: string;
   tags?: string[];
   status: MixStatus;

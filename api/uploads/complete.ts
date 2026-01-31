@@ -2,6 +2,7 @@ import { requireRole } from '../_jwtAuth';
 import { kvSet } from '../_kv';
 import { verifyCloudinarySignature } from '../_cloudinary';
 import { ALLOWED_AUDIO_FORMATS, MAX_AUDIO_BYTES } from './_audioConfig';
+import { rateLimit } from '../_rateLimit';
 
 export const config = { runtime: 'edge' };
 
@@ -26,7 +27,14 @@ export default async function handler(req: Request) {
   }
 
   try {
-    await requireRole(req, ['dj']);
+    const payload = await requireRole(req, ['dj']);
+    const rl = await rateLimit(req, {
+      keyPrefix: 'uploads-complete',
+      limit: 30,
+      windowSeconds: 60,
+      userId: payload.sub,
+    });
+    if (rl) return rl;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;
