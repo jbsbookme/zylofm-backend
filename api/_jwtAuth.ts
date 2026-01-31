@@ -17,3 +17,5 @@ export async function requireRole(req: Request, roles: Role[]) {
   if (!allowed) throw new Error('Forbidden');
   return payload;
 }
+
+export { requireAccessToken as requireAccess, requireRole as requireAccessRole };
