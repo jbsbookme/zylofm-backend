@@ -8,6 +8,7 @@ import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
 import { recordEvent, recordUploadCompleted, recordUploadFailed } from '../_analytics';
+import { requirePlanForUploadComplete } from '../_plan';
 
 export const config = { runtime: 'edge' };
 
@@ -90,6 +91,13 @@ export default async function handler(req: Request) {
   if (!signatureOk) {
     return await badRequest('invalid_signature', 'Invalid signature', 'invalid_signature');
   }
+
+  const planCheck = await requirePlanForUploadComplete(
+    payload.sub,
+    body.duration ?? null,
+    payload.role as string | undefined,
+  );
+  if (!planCheck.ok) return planCheck.response;
 
   const data = {
     public_id: body.public_id,

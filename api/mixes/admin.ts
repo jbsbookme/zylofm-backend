@@ -1,80 +1,92 @@
-import { handleOptions } from '../_cors';
 import { requireRole } from '../_jwtAuth';
 import { getMix, saveMix, MixStatus } from './_store';
 import { rateLimit } from '../_rateLimit';
 import { jsonError, jsonResponse } from '../_http';
+import { handleOptions } from '../_cors';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
 import { recordEvent, recordMixPublished } from '../_analytics';
 
 export const config = { runtime: 'edge' };
 
-export async function OPTIONS(req: Request) {
-  return handleOptions(req);
-}
-
 type Body = {
   mixId: string;
   status: MixStatus;
 };
 
-const postHandler = async (req: Request) => {
-  const origin = req.headers.get('origin');
+function badRequest(origin: string | null, code: string, message: string) {
+  return jsonError(400, code, message, {}, origin);
+}
 
-  await rateLimit(req);
-  await requireRole(req, ['admin']);
+export async function OPTIONS(req: Request) {
+  return handleOptions(req);
+}
 
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'bad_request', 'Invalid JSON body', {}, origin);
-  }
+export default async function handler(req: Request) {
+  return withRequestLogging(req, 'mixes.admin', async () => {
+    const origin = req.headers.get('origin');
 
-  const mix = await getMix(body.mixId);
-  if (!mix) {
-    return jsonError(404, 'not_found', 'Mix not found', {}, origin);
-  }
+    if (req.method !== 'PATCH' && req.method !== 'POST') {
+      return jsonError(405, 'method_not_allowed', 'Method Not Allowed', {}, origin);
+    }
 
-  mix.status = body.status;
-  await saveMix(mix);
+    try {
+      const payload = await requireRole(req, ['admin']);
+      const rl = await rateLimit(req, {
+        keyPrefix: 'mixes-admin',
+        limit: 60,
+        windowSeconds: 60,
+        userId: payload.sub,
+      });
+      if (rl) return rl;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unauthorized';
+      const status = message === 'Forbidden' ? 403 : 401;
+      return jsonError(status, 'unauthorized', message, {}, origin);
+    }
 
-  if (body.status === 'published') {
-    recordMixPublished(mix);
-  }
+    let body: Body;
+    try {
+      body = (await req.json()) as Body;
+    } catch {
+      return badRequest(origin, 'invalid_json', 'Invalid JSON');
+    }
 
-  recordEvent('mix_status_updated', { mixId: body.mixId, status: body.status });
-  logEvent('mix_admin_update', { mixId: body.mixId, status: body.status });
+    if (!body?.mixId || !body?.status) {
+      return badRequest(origin, 'missing_fields', 'Missing mixId or status');
+    }
 
-  return jsonResponse({ ok: true, mix }, 200, {}, origin);
-};
+    if (!['published', 'rejected', 'pending'].includes(body.status)) {
+      return badRequest(origin, 'invalid_status', 'Invalid status');
+    }
 
-export const POST = withRequestLogging(postHandler);
+    const mix = await getMix(body.mixId);
+    if (!mix) {
+      return jsonError(404, 'mix_not_found', 'Mix not found', {}, origin);
+    }
 
-  await rateLimit(req);
-  await requireRole(req, ['admin']);
+    const previousStatus = mix.status;
 
-  let body: Body;
-  try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, 'bad_request', 'Invalid JSON body', {}, origin);
-  }
+    mix.status = body.status;
+    mix.updatedAt = new Date().toISOString();
 
-  const mix = await getMix(body.mixId);
-  if (!mix) {
-    return jsonError(404, 'not_found', 'Mix not found', {}, origin);
-  }
+    await saveMix(mix);
 
-  mix.status = body.status;
-  await saveMix(mix);
+    logEvent({
+      name: 'mix.moderate',
+      meta: { mixId: mix.id, status: mix.status },
+    });
 
-  if (body.status === 'published') {
-    recordMixPublished(mix);
-  }
+    if (mix.status === 'published' && previousStatus !== 'published') {
+      const createdAt = Date.parse(mix.createdAt);
+      const publishedAt = Date.now();
+      const seconds = Number.isFinite(createdAt)
+        ? Math.max(0, Math.floor((publishedAt - createdAt) / 1000))
+        : undefined;
+      await recordEvent('mix_published', { mixId: mix.id });
+      await recordMixPublished(seconds);
+    }
 
-  recordEvent('mix_status_updated', { mixId: body.mixId, status: body.status });
-  logEvent('mix_admin_update', { mixId: body.mixId, status: body.status });
-
-  return jsonResponse({ ok: true, mix }, 200, {}, origin);
-});
+    return jsonResponse(mix, 200, {}, origin);
+  });
+}

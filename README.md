@@ -18,6 +18,7 @@ Backend serverless para Zylo usando Vercel Edge Functions.
 - CLOUDINARY_API_SECRET
 - FEATURE_UPLOADS=true|false (soft launch)
 - FEATURE_LOGS=true|false (logs mínimos)
+- FEATURE_PAYMENTS=true|false (monetización oculta)
 
 ## Auth (JWT + refresh rotation)
 
@@ -160,6 +161,14 @@ Incluidos en todas las respuestas JSON:
 - Métricas KV:
   - errors por endpoint: `metrics:errors:<endpoint>`
   - rate limit hits: `metrics:ratelimit:<keyPrefix>`
+
+### Exportar métricas (CSV)
+
+Requiere `KV_REST_API_URL` y `KV_REST_API_TOKEN`:
+
+node api/scripts/metrics_export.js 7
+node api/scripts/metrics_export.js 30
+node api/scripts/metrics_export.js 7 2025-01-01 2025-01-31
 
 ## Checklist de pruebas manuales (happy path)
 

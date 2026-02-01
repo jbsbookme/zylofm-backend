@@ -1,3 +1,5 @@
+import { corsHeaders } from './_cors';
+
 type HeadersInitRecord = Record<string, string>;
 
 export function securityHeaders(): HeadersInitRecord {
@@ -17,25 +19,25 @@ export function jsonResponse(
   data: unknown,
   status = 200,
   headers: HeadersInitRecord = {},
-) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { ...securityHeaders(), ...headers },
-  });
-}
-
-export function jsonResponse(
-  data: unknown,
-  status = 200,
-  headers: HeadersInitRecord = {},
   origin?: string | null,
 ) {
+  const baseHeaders = { ...securityHeaders(), ...headers };
+  const cors = origin ? corsHeaders(origin) : {};
   return new Response(JSON.stringify(data), {
     status,
     headers: {
-      ...securityHeaders(),
-      ...corsHeaders(origin),
-      ...headers,
+      ...baseHeaders,
+      ...cors,
     },
   });
+}
+
+export function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  headers: HeadersInitRecord = {},
+  origin?: string | null,
+) {
+  return jsonResponse({ error: { code, message } }, status, headers, origin);
 }

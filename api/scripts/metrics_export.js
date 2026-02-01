@@ -39,8 +39,27 @@ async function kvGet(key) {
   return 0;
 }
 
-function getDates(days) {
+function parseDate(value) {
+  if (!value) return null;
+  const cleaned = String(value).replace(/-/g, '');
+  if (!/^[0-9]{8}$/.test(cleaned)) return null;
+  const yyyy = Number(cleaned.slice(0, 4));
+  const mm = Number(cleaned.slice(4, 6));
+  const dd = Number(cleaned.slice(6, 8));
+  if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+  return new Date(Date.UTC(yyyy, mm - 1, dd));
+}
+
+function getDates(days, startDate, endDate) {
   const dates = [];
+  if (startDate && endDate) {
+    let cur = new Date(startDate.getTime());
+    while (cur.getTime() <= endDate.getTime()) {
+      dates.push(new Date(cur.getTime()));
+      cur = new Date(cur.getTime() + 24 * 60 * 60 * 1000);
+    }
+    return dates;
+  }
   const now = new Date();
   for (let i = days - 1; i >= 0; i -= 1) {
     const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
@@ -51,7 +70,17 @@ function getDates(days) {
 
 async function main() {
   const days = Number(process.argv[2] || '7');
-  if (!Number.isFinite(days) || days <= 0) {
+  const startArg = process.argv[3];
+  const endArg = process.argv[4];
+  const startDate = parseDate(startArg);
+  const endDate = parseDate(endArg);
+
+  if ((startArg || endArg) && (!startDate || !endDate || startDate > endDate)) {
+    console.error('Usage: node api/scripts/metrics_export.js <days> [YYYYMMDD|YYYY-MM-DD] [YYYYMMDD|YYYY-MM-DD]');
+    process.exit(1);
+  }
+
+  if ((!startDate || !endDate) && (!Number.isFinite(days) || days <= 0)) {
     console.error('Usage: node api/scripts/metrics_export.js <days>');
     process.exit(1);
   }
@@ -68,7 +97,7 @@ async function main() {
   ];
   console.log(headers.join(','));
 
-  for (const d of getDates(days)) {
+  for (const d of getDates(days, startDate, endDate)) {
     const key = dateKey(d);
     const activeDj = await kvGet(`metrics:active_dj:${key}`);
     const mixCreated = await kvGet(`metrics:mix_created:${key}`);

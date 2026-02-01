@@ -1,9 +1,1 @@
-{
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "methods": ["OPTIONS"],
-      "dest": "/api/health"
-    }
-  ]
-}
+{}

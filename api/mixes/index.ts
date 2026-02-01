@@ -5,6 +5,7 @@ import { jsonError, jsonResponse } from '../_http';
 import { logEvent } from '../_log';
 import { withRequestLogging } from '../_observability';
 import { recordEvent, recordMixCreated } from '../_analytics';
+import { requirePlanForMixCreate } from '../_plan';
 
 export const config = { runtime: 'edge' };
 
@@ -32,6 +33,9 @@ export default async function handler(req: Request) {
         userId: payload.sub,
       });
       if (rl) return rl;
+
+      const planCheck = await requirePlanForMixCreate(payload.sub, payload.role as string | undefined);
+      if (!planCheck.ok) return planCheck.response;
 
       let body: CreateBody;
       try {

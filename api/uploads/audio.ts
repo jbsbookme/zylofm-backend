@@ -6,6 +6,7 @@ import { env } from '../_env';
 import { jsonError, jsonResponse } from '../_http';
 import { withRequestLogging } from '../_observability';
 import { recordEvent, recordUploadStarted } from '../_analytics';
+import { requirePlanForUploadStart } from '../_plan';
 
 export const config = { runtime: 'edge' };
 
@@ -41,6 +42,9 @@ export default async function handler(req: Request) {
       userId: payload.sub,
     });
     if (rl) return rl;
+
+    const planCheck = await requirePlanForUploadStart(payload.sub, payload.role as string | undefined);
+    if (!planCheck.ok) return planCheck.response;
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unauthorized';
     const status = message === 'Forbidden' ? 403 : 401;

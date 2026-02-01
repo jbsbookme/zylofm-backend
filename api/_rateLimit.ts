@@ -52,7 +52,7 @@ export async function rateLimit(req: Request, opts: RateLimitOptions) {
       'X-RateLimit-Limit': opts.limit.toString(),
       'X-RateLimit-Remaining': '0',
       'X-RateLimit-Reset': Math.ceil(bucket.resetAt / 1000).toString(),
-    });
+    }, req.headers.get('origin'));
   }
 
   const updated: Bucket = { count: bucket.count + 1, resetAt: bucket.resetAt };
