@@ -1,5 +1,5 @@
 import { requireRole } from '../_jwtAuth';
-import { getMix, saveMix, MixStatus } from './_store';
+import { getMix, listAllMixes, saveMix, MixStatus } from './_store';
 import { rateLimit } from '../_rateLimit';
 import { jsonError, jsonResponse } from '../_http';
 import { handleOptions } from '../_cors';
@@ -18,15 +18,15 @@ function badRequest(origin: string | null, code: string, message: string) {
   return jsonError(400, code, message, {}, origin);
 }
 
-export async function OPTIONS(req: Request) {
-  return handleOptions(req);
-}
-
 export default async function handler(req: Request) {
   return withRequestLogging(req, 'mixes.admin', async () => {
     const origin = req.headers.get('origin');
 
-    if (req.method !== 'PATCH' && req.method !== 'POST') {
+    if (req.method === 'OPTIONS') {
+      return handleOptions(req);
+    }
+
+    if (req.method !== 'PATCH' && req.method !== 'POST' && req.method !== 'GET') {
       return jsonError(405, 'method_not_allowed', 'Method Not Allowed', {}, origin);
     }
 
@@ -43,6 +43,22 @@ export default async function handler(req: Request) {
       const message = err instanceof Error ? err.message : 'Unauthorized';
       const status = message === 'Forbidden' ? 403 : 401;
       return jsonError(status, 'unauthorized', message, {}, origin);
+    }
+
+    if (req.method === 'GET') {
+      const url = new URL(req.url);
+      const statusParam = url.searchParams.get('status');
+      const status =
+        statusParam && ['pending', 'published', 'rejected'].includes(statusParam)
+          ? (statusParam as MixStatus)
+          : undefined;
+
+      if (statusParam && !status) {
+        return badRequest(origin, 'invalid_status', 'Invalid status');
+      }
+
+      const mixes = await listAllMixes(status);
+      return jsonResponse(mixes, 200, {}, origin);
     }
 
     let body: Body;

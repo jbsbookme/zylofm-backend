@@ -14,6 +14,10 @@ export type PlanCheck =
   | { ok: true; plan: PlanName; limits: PlanLimits }
   | { ok: false; response: Response };
 
+export function isPlanDenied(check: PlanCheck): check is { ok: false; response: Response } {
+  return check.ok === false;
+}
+
 export type PlanRecord = {
   plan: PlanName;
   plan_expires_at?: string | null;

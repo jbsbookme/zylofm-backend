@@ -87,3 +87,18 @@ export async function listUserMixes(userId: string) {
   mixes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return mixes;
 }
+
+export async function listAllMixes(status?: MixStatus) {
+  const ids = await getList('mixes:index');
+  const mixes: Mix[] = [];
+
+  for (const id of ids) {
+    const mix = await getMix(id);
+    if (!mix) continue;
+    if (status && mix.status !== status) continue;
+    mixes.push(mix);
+  }
+
+  mixes.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return mixes;
+}
