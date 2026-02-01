@@ -24,11 +24,18 @@ export function jsonResponse(
   });
 }
 
-export function jsonError(
-  status: number,
-  code: string,
-  message: string,
+export function jsonResponse(
+  data: unknown,
+  status = 200,
   headers: HeadersInitRecord = {},
+  origin?: string | null,
 ) {
-  return jsonResponse({ error: { code, message } }, status, headers);
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...securityHeaders(),
+      ...corsHeaders(origin),
+      ...headers,
+    },
+  });
 }
