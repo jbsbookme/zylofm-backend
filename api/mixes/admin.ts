@@ -26,7 +26,7 @@ export default async function handler(req: Request) {
       return handleOptions(req);
     }
 
-    if (req.method !== 'PATCH' && req.method !== 'POST' && req.method !== 'GET') {
+    if (req.method !== 'PATCH' && req.method !== 'POST' && req.method !== 'GET' && req.method !== 'HEAD') {
       return jsonError(405, 'method_not_allowed', 'Method Not Allowed', {}, origin);
     }
 
@@ -45,7 +45,7 @@ export default async function handler(req: Request) {
       return jsonError(status, 'unauthorized', message, {}, origin);
     }
 
-    if (req.method === 'GET') {
+    if (req.method === 'GET' || req.method === 'HEAD') {
       const url = new URL(req.url);
       const statusParam = url.searchParams.get('status');
       const status =

@@ -21,11 +21,19 @@ type AuthUser = { id: string; email: string; role?: string };
 async function authenticateUser(body: LoginBody): Promise<AuthUser> {
   const { email, password } = body;
 
-  const bypass = env.AUTH_BYPASS === 'true';
-  if (bypass) {
-    return { id: email, email, role: 'user' };
+  // ✅ ADMIN REAL POR ENV
+  if (
+    email === env.ADMIN_EMAIL &&
+    password === env.ADMIN_PASSWORD
+  ) {
+    return {
+      id: `admin:${email}`,
+      email,
+      role: 'admin',
+    };
   }
 
+  // 🧪 Test user (si lo usas)
   const testEmail = env.AUTH_TEST_USER_EMAIL;
   const testPassword = env.AUTH_TEST_USER_PASSWORD;
   if (testEmail && testPassword) {
@@ -34,6 +42,18 @@ async function authenticateUser(body: LoginBody): Promise<AuthUser> {
         id: env.AUTH_TEST_USER_ID || 'test-user',
         email: testEmail,
         role: 'user',
+      };
+    }
+  }
+
+  const adminEmail = env.ADMIN_EMAIL;
+  const adminPassword = env.ADMIN_PASSWORD;
+  if (adminEmail && adminPassword) {
+    if (email === adminEmail && password === adminPassword) {
+      return {
+        id: env.ADMIN_USER_ID || adminEmail,
+        email: adminEmail,
+        role: 'admin',
       };
     }
   }
