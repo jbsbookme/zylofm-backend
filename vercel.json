@@ -3,5 +3,11 @@
     "api/**/*.ts": {
       "runtime": "edge"
     }
-  }
+  },
+  "routes": [
+    {
+      "src": "^/api/(.*)$",
+      "dest": "/api/$1"
+    }
+  ]
 }
